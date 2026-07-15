@@ -1,4 +1,6 @@
 <title>W7-X plasma boundary · |B|</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta charset="utf-8">
 <style>
   /* Deliberately single-theme: a plasma surface glowing in vacuum-vessel dark.
      The colormap is the hero; every UI color stays quiet around it. */
@@ -282,12 +284,28 @@
   }
 
   @media (max-width: 720px) {
-    .hud-tl { max-width: min(62vw, 300px); padding: 10px 12px; }
-    h1 { font-size: 16px; }
-    .sub { font-size: 11.5px; }
-    .hud-tr { padding: 10px 12px; }
+    /* Controls panel scales down; the title never runs under it, and the
+       subtitle yields the space. The "?" leaves the crowded player bar and
+       floats above it, always reachable (it IS the help key on touch). */
+    .hud-tl { max-width: calc(100vw - 250px); padding: 10px 12px; }
+    .hud-tl .sub { display: none; }
+    h1 { font-size: 15px; }
+    .hud-tr { padding: 10px 12px; transform: scale(0.88); transform-origin: top right; }
     .hud-br { display: none; }
     #player { left: 12px; right: 12px; bottom: 12px; gap: 10px; }
+    .player-label { font-size: 10px; }
+    .help-fab {
+      position: fixed;
+      right: 12px;
+      bottom: 116px;   /* clear of both the player bar and the hint pill */
+      z-index: 11;
+      width: 32px;
+      height: 32px;
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    #help { min-width: 0; width: calc(100vw - 48px); }
     #hint { bottom: 72px; font-size: 11px; white-space: nowrap; }
   }
 </style>
@@ -1479,6 +1497,9 @@ function wrapIndex(nt, np) {
 (function main() {
   const stage = document.getElementById("stage");
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Touch devices get touch bindings in the help table, hint, and probe;
+  // the "?" button is the F1 of touch.
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
 
   let renderer;
   try {
@@ -2165,9 +2186,11 @@ function wrapIndex(nt, np) {
   const pA = new THREE.Vector3(), pB = new THREE.Vector3(),
         pC = new THREE.Vector3(), pBc = new THREE.Vector3();
   function hideProbe() { probe.hidden = true; }
-  function probeAt(e) {
-    if (presenting || (e.pointerType && e.pointerType !== "mouse") ||
-        e.buttons !== 0 || cubeHit(e) !== null) return hideProbe();
+  function probeAt(e, fromTouch) {
+    if (presenting || cubeHit(e) !== null ||
+        (fromTouch ? false
+                   : ((e.pointerType && e.pointerType !== "mouse") ||
+                      e.buttons !== 0))) return hideProbe();
     const target = frameMesh || heroMesh;   // frame mesh mirrors the hero
     probeNdc.set((e.clientX / window.innerWidth) * 2 - 1,
                  -((e.clientY / window.innerHeight) * 2 - 1));
@@ -2210,6 +2233,21 @@ function wrapIndex(nt, np) {
     probeAt(e);
   });
   renderer.domElement.addEventListener("pointerleave", hideProbe);
+  if (coarse) {
+    // Touch probe: press and hold ~0.4 s reads |B| under the finger.
+    let holdTimer = null, holdEvt = null;
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      holdEvt = e;
+      holdTimer = window.setTimeout(() => probeAt(holdEvt, true), 400);
+    });
+    renderer.domElement.addEventListener("pointermove", (e) => { holdEvt = e; });
+    for (const ev of ["pointerup", "pointercancel"]) {
+      renderer.domElement.addEventListener(ev, () => {
+        window.clearTimeout(holdTimer);
+        hideProbe();
+      });
+    }
+  }
 
   // --- HUD text ---------------------------------------------------------------
   const fmt = (x) => x.toFixed(2);
@@ -2257,6 +2295,23 @@ function wrapIndex(nt, np) {
 
   const helpPanel = document.getElementById("help");
   const helpBtn = document.getElementById("help-btn");
+  if (coarse) {
+    const rows = [
+      ["Orbit", "one-finger drag"],
+      ["Pan", "two-finger drag"],
+      ["Zoom", "pinch"],
+      ["Reset view", "double-tap"],
+      ["Snap to axis", "tap cube face"],
+      ["|B| probe", "touch and hold"],
+      ["Play / pause surfaces", "Play button"],
+      ["Step surface", "bottom slider"],
+      ["Help", "? button"],
+    ];
+    helpPanel.querySelector("table").innerHTML = rows.map(
+      (r) => "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>").join("");
+    document.getElementById("hint").textContent =
+      "drag to orbit · pinch to zoom · double-tap to reset · ? for help";
+  }
   let helpOpen = false;
   function setHelp(on) {
     helpOpen = on;
